@@ -1,0 +1,51 @@
+name: Playwright E2E
+
+on:
+  pull_request:
+  push:
+    branches: [ main, build-octofit-app ]
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:6
+        ports: ['27017:27017']
+        options: >-
+          --health-cmd="mongosh --eval 'db.adminCommand( { ping: 1 } )'"
+          --health-interval=10s --health-timeout=5s --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
+
+      - name: Install backend deps
+        run: npm ci --prefix octofit-tracker/backend
+
+      - name: Install frontend deps & Playwright browsers
+        run: |
+          npm ci --prefix octofit-tracker/frontend
+          npx playwright install --with-deps chromium
+
+      - name: Start backend
+        run: |
+          npm --prefix octofit-tracker/backend run dev &>/tmp/backend.log &
+          npx wait-on http://localhost:8000/api/activities --timeout 45000
+
+      - name: Build frontend
+        run: npm --prefix octofit-tracker/frontend run build
+
+      - name: Start frontend preview
+        run: |
+          npm --prefix octofit-tracker/frontend run preview &>/tmp/frontend.log &
+          npx wait-on http://localhost:5173 --timeout 30000
+
+      - name: Run Playwright tests
+        env:
+          PW_BASE_URL: http://localhost:5173
+        run: npm --prefix octofit-tracker/frontend run test:e2e
